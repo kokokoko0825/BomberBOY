@@ -69,6 +69,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [thresholdDb, setThresholdDb] = useState<number>(-40); // しきい値（dB）
   const [requiredMs, setRequiredMs] = useState<number>(1000); // 継続必要時間（ms）
+  const explodeHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
   // mic
   const micRafRef = useRef<number | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -167,9 +168,22 @@ function App() {
      */
     const shatterWord = (center: Vector2D) => {
       // 表示している文字と同等のスタイルでオフスクリーンに描画
-      const fontSize = 96; // DOM の表示と合わせる
-      const fontWeight = 900;
-      const fontFamily = "ui-sans-serif, system-ui, -apple-system";
+      const defaultFontSize = 96;
+      const defaultFontWeight = 900;
+      const defaultFontFamily = "ui-sans-serif, system-ui, -apple-system";
+
+      let fontSize = defaultFontSize;
+      let fontWeight: number | string = defaultFontWeight;
+      let fontFamily = defaultFontFamily;
+      const el = wordRef.current;
+      if (el) {
+        const cs = getComputedStyle(el);
+        const parsedSize = parseFloat(cs.fontSize);
+        if (!Number.isNaN(parsedSize)) fontSize = parsedSize;
+        // フォントウェイトは数値またはキーワード("bold")の可能性
+        fontWeight = (/^\d+$/.test(cs.fontWeight) ? Number(cs.fontWeight) : cs.fontWeight) || defaultFontWeight;
+        fontFamily = cs.fontFamily || defaultFontFamily;
+      }
       const font = `${fontWeight} ${fontSize}px ${fontFamily}`;
 
       const off = document.createElement("canvas");
@@ -179,7 +193,7 @@ function App() {
       offCtx.textAlign = "center";
       offCtx.textBaseline = "middle";
       const padding = 32;
-      const metrics = offCtx.measureText("暑い");
+      const metrics = offCtx.measureText("暑さ");
       const textWidth = Math.ceil(metrics.width);
       const textHeight = Math.ceil(fontSize * 1.2);
       off.width = textWidth + padding * 2;
@@ -195,7 +209,7 @@ function App() {
       offCtx.font = font;
       offCtx.textAlign = "center";
       offCtx.textBaseline = "middle";
-      offCtx.fillText("暑い", off.width / 2, off.height / 2);
+      offCtx.fillText("暑さ", off.width / 2, off.height / 2);
 
       const image = offCtx.getImageData(0, 0, off.width, off.height);
       const data = image.data;
@@ -283,15 +297,17 @@ function App() {
     };
 
     // ハンドラを ref に保管して、クリーンアップ時に外す
-    (wordRef as any)._explodeHandler = explodeFromWord as () => void;
+    explodeHandlerRef.current = () => {
+      explodeFromWord();
+    };
     const attach = () => {
-      if (wordRef.current) {
-        wordRef.current.addEventListener("click", (wordRef as any)._explodeHandler);
+      if (wordRef.current && explodeHandlerRef.current) {
+        wordRef.current.addEventListener("click", explodeHandlerRef.current);
       }
     };
     const detach = () => {
-      if (wordRef.current && (wordRef as any)._explodeHandler) {
-        wordRef.current.removeEventListener("click", (wordRef as any)._explodeHandler);
+      if (wordRef.current && explodeHandlerRef.current) {
+        wordRef.current.removeEventListener("click", explodeHandlerRef.current);
       }
     };
     // 初回 attach
@@ -397,7 +413,12 @@ function App() {
       try {
         const supportsMedia = !!navigator.mediaDevices?.getUserMedia;
         if (!supportsMedia) return;
-        const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+        type WindowWithAudioContext = Window & {
+          AudioContext?: { new (): AudioContext };
+          webkitAudioContext?: { new (): AudioContext };
+        };
+        const win = window as WindowWithAudioContext;
+        const AudioCtx = win.AudioContext ?? win.webkitAudioContext;
         if (!AudioCtx) return;
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
         const audioCtx: AudioContext = new AudioCtx();
@@ -462,7 +483,9 @@ function App() {
       if (audioCtxRef.current) {
         try {
           audioCtxRef.current.close();
-        } catch {}
+        } catch {
+          // AudioContext close failed or already closed; intentionally ignored
+        }
         audioCtxRef.current = null;
       }
       analyserRef.current = null;
@@ -655,8 +678,8 @@ function App() {
         onClick={() => setSettingsOpen((v) => !v)}
         style={{
           position: "absolute",
-          top: 12,
-          left: 12,
+          top: "max(12px, env(safe-area-inset-top))",
+          left: "max(12px, env(safe-area-inset-left))",
           padding: 12,
           borderRadius: 8,
           border: "1px solid rgba(255,255,255,0.25)",
@@ -702,6 +725,7 @@ function App() {
             border: "1px solid rgba(255,255,255,0.2)",
             boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
             backdropFilter: "blur(8px)",
+            maxWidth: "calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))",
           }}
         >
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>設定</div>
@@ -808,8 +832,8 @@ function App() {
           top: 0,
           right: 0,
           bottom: 0,
-          width: 48,
-          padding: 10,
+          width: "clamp(32px, 6vw, 48px)",
+          padding: "clamp(6px, 1.2vw, 10px)",
           display: "flex",
           alignItems: "flex-end",
           pointerEvents: "none",
@@ -818,7 +842,7 @@ function App() {
         <div
           style={{
             position: "relative",
-            width: 16,
+            width: "clamp(10px, 2vw, 16px)",
             height: "100%",
             borderRadius: 6,
             background: "rgba(255,255,255,0.12)",
@@ -873,11 +897,11 @@ function App() {
           role="button"
           aria-label="クリックで『暑い』が爆散します"
           tabIndex={0}
-          onClick={() => (wordRef as any)._explodeHandler?.()}
+          onClick={() => explodeHandlerRef.current?.(new MouseEvent("click"))}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              (wordRef as any)._explodeHandler?.();
+              explodeHandlerRef.current?.(new MouseEvent("click"));
             }
           }}
           style={{
@@ -886,13 +910,14 @@ function App() {
             left: "50%",
             transform: "translate(-50%, -50%)",
             color: "white",
-            fontSize: 96,
+            fontSize: "clamp(56px, 9vw, 128px)",
             fontWeight: 900,
             textShadow: "0 4px 16px rgba(0,0,0,0.45)",
             cursor: "pointer",
             userSelect: "none",
             lineHeight: 1,
-            letterSpacing: 4,
+            letterSpacing: "clamp(2px, 0.6vw, 6px)",
+            paddingInline: "max(0px, env(safe-area-inset-left)) max(0px, env(safe-area-inset-right))",
           }}
         >
           <div
