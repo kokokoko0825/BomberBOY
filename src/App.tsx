@@ -726,6 +726,7 @@ function App() {
             boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
             backdropFilter: "blur(8px)",
             maxWidth: "calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))",
+            zIndex: 30,
           }}
         >
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>設定</div>
